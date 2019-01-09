@@ -1,0 +1,10 @@
+prefix=/home/ali/Documents/Citron-Android/build/install/aarch64
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: Boehm-Demers-Weiser Conservative Garbage Collector
+Description: A garbage collector for C and C++
+Version: 8.1.0
+Libs: -L${libdir}  -lgc
+Cflags: -I${includedir}

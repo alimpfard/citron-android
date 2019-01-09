@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Citron Eval</string>
+    <string name="button_evaluate">Evaluate</string>
+    <string name="button_eval">Eval</string>
+    <string name="input_code_hint">Code...</string>
+</resources>

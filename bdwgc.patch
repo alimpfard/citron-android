@@ -1,0 +1,13 @@
+diff --git a/include/private/gcconfig.h b/include/private/gcconfig.h
+index a5f81f43..2bd95f01 100644
+--- a/include/private/gcconfig.h
++++ b/include/private/gcconfig.h
+@@ -2983,7 +2983,7 @@ EXTERN_C_BEGIN
+         || defined(ARM32) || defined(I386) /* but not x32 */)
+   /* tkill() exists only on arm32/mips(32)/x86. */
+   /* NDK r11+ deprecates tkill() but keeps it for Mono clients. */
+-# define USE_TKILL_ON_ANDROID
++// # define USE_TKILL_ON_ANDROID
+ #endif
+ 
+ #if defined(SOLARIS) || defined(DRSNX) || defined(UTS4)

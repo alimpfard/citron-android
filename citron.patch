@@ -1,0 +1,202 @@
+diff --git a/citron.c b/citron.c
+index 3736852..8245dfa 100644
+--- a/citron.c
++++ b/citron.c
+@@ -174,6 +174,94 @@ void ctr_initialize_ex() {
+ 
+ }
+ 
++#ifdef FOR_JNI
++
++#include <jni.h>
++static jstring pathv = NULL;
++static int initialized_jni = 0;
++
++jint throwNoClassDefError( JNIEnv *env, char *message )
++{
++    jclass exClass;
++    char *className = "java/lang/NoClassDefFoundError";
++
++    exClass = (*env)->FindClass( env, className);
++    if (exClass == NULL) {
++        return throwNoClassDefError( env, className );
++    }
++
++    return (*env)->ThrowNew( env, exClass, message );
++}
++
++jint throwRuntimeError( JNIEnv *env, char *message )
++{
++    jclass exClass;
++    char *className = "java/lang/RuntimeError" ;
++
++    exClass = (*env)->FindClass( env, className );
++    if ( exClass == NULL ) {
++        return throwNoClassDefError( env, className );
++    }
++
++    return (*env)->ThrowNew( env, exClass, message );
++}
++
++JNIEXPORT jboolean JNICALL Java_net_anothertest_NativeCitron_initialize(JNIEnv* env, jobject self, jstring path) {
++    if (initialized_jni)
++        throwRuntimeError(env, "Already initialized");
++    EXT_PATH = (*env)->GetStringUTFChars(env, path, NULL);
++    if (!EXT_PATH)
++        return 0;
++    pathv = path;
++    initialized_jni = 1;
++    ctr_initialize_ex();
++    return 1;
++}
++
++JNIEXPORT void JNICALL Java_net_anothertest_NativeCitron_destroy(JNIEnv* env, jobject self) {
++    ctr_heap_free_rest();
++    lambdaf_end_instance();
++    // (*env)->ReleaseStringUTFChars(env, pathv, EXT_PATH);
++    EXT_PATH = NULL;
++}
++
++char* ctr_debug_get_cstr(ctr_object* obj) {
++    return ctr_heap_allocate_cstring(obj);
++}
++
++JNIEXPORT jstring JNICALL Java_net_anothertest_NativeCitron_evaluate(JNIEnv* env, jobject self, jstring src) {
++    const char* src_c = (*env)->GetStringUTFChars(env, src, NULL);
++    if (!src_c) return (*env)->NewStringUTF(env, "Invalid src object");
++
++    ctr_size len = 0;
++    ctr_object *prgv = ctr_internal_cast2string(
++            ctr_string_eval(ctr_build_string_from_cstring(src_c), NULL)
++            );
++    (*env)->ReleaseStringUTFChars(env, src, src_c);
++
++    ctr_gc_sweep (0);
++
++    if (CtrStdFlow != NULL) {
++        jclass c = (*env)->GetObjectClass(self);
++        jfieldID id = (*env)->GetFieldID(c, "_error", "Z");
++        (*env)->SetBooleanField(self, id, 1);
++        ctr_object* err = CtrStdFlow;
++        CtrStdFlow = NULL;
++        char* errv = ctr_heap_allocate_cstring(err);
++        jstring ss = (*env)->NewStringUTF(env, errv);
++        ctr_heap_free(errv);
++        return ss;
++    }
++        jclass c = (*env)->GetObjectClass(self);
++        jfieldID id = (*env)->GetFieldID(c, "_error", "Z");
++        (*env)->SetBooleanField(self, id, 0);
++    char* errv = ctr_heap_allocate_cstring(prgv);
++    jstring ss = (*env)->NewStringUTF(env, errv);
++    ctr_heap_free(errv);
++    return ss;
++}
++#else
++
+ #ifndef LIBRARY_BUILD
+ #ifndef CITRON_LIBRARY
+ /**
+@@ -306,3 +394,5 @@ execute_string_len (char *prg, int length)
+   return msg;
+ }
+ #endif //LIBRARY_BUILD
++
++#endif //FOR_JNI
+diff --git a/integration/atom/language-citron b/integration/atom/language-citron
+--- a/integration/atom/language-citron
++++ b/integration/atom/language-citron
+@@ -1 +1 @@
+-Subproject commit 469b767547eb156dbbeac28a7a3019861c8e73d5
++Subproject commit 469b767547eb156dbbeac28a7a3019861c8e73d5-dirty
+diff --git a/libbsd b/libbsd
+--- a/libbsd
++++ b/libbsd
+@@ -1 +1 @@
+-Subproject commit a70385d07e690015a3c8eea06b1621a4cb127d00
++Subproject commit a70385d07e690015a3c8eea06b1621a4cb127d00-dirty
+diff --git a/makefile b/makefile
+index d2274d1..1a9765c 100644
+--- a/makefile
++++ b/makefile
+@@ -1,7 +1,6 @@
+ DEBUG_VERSION := 70
+ DEBUG_BUILD_VERSION := "\"$(DEBUG_VERSION)\""
+-fv := $(strip $(shell ldconfig -p | grep libgc.so | cut -d ">" -f2 | head -n1))
+-fv := '/data/data/com.termux/files/usr/lib/libgc.so'
++fv := '-lgc'
+ location = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+ WHERE_ART_THOU := $(location)
+ new_makefile_l1 := $(shell perl -ne '/((DEBUG_VERSION := )(\d+))/ && print (sprintf("%s%s", "$$2", "$$3"+1));' $(WHERE_ART_THOU))
+@@ -29,7 +28,7 @@ else
+ CFLAGS := ${CFLAGS} "-D withBoehmGC_P"
+ endif
+ 
+-CFLAGS := ${CFLAGS} -pthread -fsigned-char
++CFLAGS := ${CFLAGS} -fsigned-char -fPIC
+ 
+ .PHONY: gc_check
+ gc_check:
+@@ -40,13 +39,14 @@ gc_check:
+ CFLAGS += ${shell_cflags}
+ LDFLAGS += ${shell_ldflags}
+ LEXTRACF := ${LDFLAGS} ${LEXTRACF} -flto -lstdc++
+-
++CXXFLAGS += -fPIC
+ -include gc_check
+ 
+ OBJS = siphash.o utf8.o memory.o util.o base.o collections.o file.o system.o\
+ 		lexer.o lexer_plug.o parser.o walker.o marshal.o reflect.o fiber.o\
+ 		importlib.o coroutine.o symbol.o generator.o base_extensions.o citron.o\
+-		promise.o symbol_cxx.o world.o lambdaf.a libsocket.so
++		promise.o symbol_cxx.o world.o lambdaf.a 
++#libsocket.so
+ EXTRAOBJS =
+ 
+ ifneq ($(findstring withCTypesNative=1,${CFLAGS}),)
+@@ -71,6 +71,10 @@ all: CFLAGS := $(CFLAGS) -O2
+ all: cxx
+ all: ctr ctrconfig
+ 
++jni: CFLAGS := $(CFLAGS) -DFOR_JNI -O3
++jni: cxx
++jni: ctr-jni
++
+ ctrconfig:
+ 	$(CC) ctrconfig.c -o ctrconfig
+ 
+@@ -81,20 +85,29 @@ debug:
+ 	sed -i -e "1s/.*/${new_makefile_l1}/" makefile
+ 
+ install:
+-	echo -e "install directly from source not allowed.\nUse citron_autohell instead for installs"
+-	exit 1;
++	mkdir -p ${INSTALL_DIR}/include/Citron
++	cp *.h ${INSTALL_DIR}/include/Citron
++	cp ctr-jni.so ${INSTALL_DIR}/lib/libcitron.so
++	mkdir -p ${INSTALL_DIR}/share/Citron/{extensions,Library,mods,basemods}
++	cp -r Library ${INSTALL_DIR}/share/Citron
++	cp -r extensions ${INSTALL_DIR}/share/Citron
++	# cp -r mods/**/*.so ${INSTALL_DIR}/share/Citron/mods
++
+ ctr:	$(OBJS) $(EXTRAOBJS)
+-	$(CXX) -fopenmp $(EXTRAOBJS) $(OBJS) ${CXXFLAGS}  -rdynamic -lm -ldl -llog -lpcre -lffi -lpthread ${LEXTRACF} -o ctr
++	$(CXX) -fopenmp $(EXTRAOBJS) $(OBJS) ${CXXFLAGS}  -rdynamic -lm -ldl -llog -lpcre -lffi ${LEXTRACF} -o ctr
++
++ctr-jni: $(OBJS) $(EXTRAOBJS)
++	$(CXX) -fopenmp -fPIC -shared $(EXTRAOBJS) $(OBJS) ${CXXFLAGS} -rdynamic -lm -ldl -llog -lpcre -lffi ${LEXTRACF} -o ctr-jni.so
+ 
+ libctr: CFLAGS := $(CFLAGS) -fPIC -DCITRON_LIBRARY
+ libctr: symbol_cxx
+ libctr: $(OBJS)
+-	$(CC) $(OBJS) -shared -export-dynamic -ldl -llog -lpcre -lffi -lpthread -o libctr.so
++	$(CC) $(OBJS) -shared -export-dynamic -ldl -llog -lpcre -lffi -o libctr.so
+ 
+ compiler: CFLAGS := $(CFLAGS) -D comp=1
+ compiler: cxx
+ compiler: $(COBJS)
+-	$(CC) $(COBJS) -rdynamic -lm -ldl -llog -lpcre -lprofiler -lpthread ${LEXTRACF} -o ctrc
++	$(CC) $(COBJS) -rdynamic -lm -ldl -llog -lpcre -lprofiler ${LEXTRACF} -o ctrc
+ cxx:
+ 	echo "blah"
+ 
